@@ -72,7 +72,7 @@ pub type N0de = Node;
 impl iroh_n0des::N0de for Node {
     async fn spawn(endpoint: iroh::Endpoint) -> anyhow::Result<Self> {
         let node = Self::spawn_router(endpoint).await?;
-        node.gateway("127.0.0.1:80").await?;
+        node.gateway("0.0.0.0:80").await?;
         Ok(node)
     }
 
