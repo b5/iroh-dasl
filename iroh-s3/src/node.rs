@@ -66,7 +66,7 @@ struct IrohInner {
     blobs: iroh_blobs::rpc::client::blobs::MemClient,
     gossip: iroh_gossip::rpc::client::MemClient,
     docs: iroh_docs::rpc::client::docs::MemClient,
-    router: Router,
+    _router: Router,
 }
 
 impl Iroh {
@@ -91,7 +91,7 @@ impl Iroh {
             blobs: blobs.client().clone(),
             gossip: gossip.client().clone(),
             docs: docs.client().clone(),
-            router,
+            _router: router,
         };
 
         Ok(Self(Arc::new(inner)))
