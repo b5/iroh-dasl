@@ -259,7 +259,7 @@ async fn get_mime_type(
 
 async fn handle_index() -> std::result::Result<String, AppError> {
     info!("handle_index");
-    Ok("oh hai fren".to_string())
+    Ok("oh hai fren, version 3".to_string())
 }
 
 /// Handle a request for a range of bytes from the default node.

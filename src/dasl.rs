@@ -4,11 +4,11 @@ use iroh_blobs::Hash;
 
 // Multicodecs DASL supports
 const RAW_CODE_POINT: u64 = 0x55;
-const DAG_CBOR_CODE_POINT: u64 = 0x56;
+const DAG_CBOR_CODE_POINT: u64 = 0x71;
 
 // Multihashes DASL supports
-const SHA_2_CODE_POINT: u64 = 0x55; // TODO: WRONG.
-const BLAKE_3_CODE_POINT: u64 = 0x56; // TODO: WRONG.
+const SHA_2_CODE_POINT: u64 = 0x12;
+const BLAKE_3_CODE_POINT: u64 = 0x1e;
 
 pub(crate) enum DaslCodec {
     Raw,
