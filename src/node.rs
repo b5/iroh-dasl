@@ -1,10 +1,10 @@
 use anyhow::Result;
-// use ipld_core::cid;
 use iroh::{Endpoint, NodeId, protocol::Router};
 use iroh_blobs::{ALPN as BLOBS_ALPN, net_protocol::Blobs};
 use tokio::task::JoinHandle;
 
 use crate::{
+    dasl::{DaslCodec, iroh_hash_to_cid},
     echo::{ALPN, Echo},
     gateway::server,
 };
@@ -56,7 +56,9 @@ impl Node {
 
     async fn add_test_data(&self) -> Result<()> {
         let res = self.blobs.add_bytes("hello world").await?;
-        println!("Added test data with hash: {}", res.hash);
+        let cid = iroh_hash_to_cid(res.hash, DaslCodec::Raw);
+        println!("Added test data with hash: {} as CID: {}", res.hash, cid);
+
         Ok(())
     }
 

@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use axum::{
     Extension, Router,
     body::Body,
@@ -15,7 +15,6 @@ use axum::{
 };
 use bytes::Bytes;
 // use derive_more::Deref;
-use ipld_core::cid::Cid;
 use iroh::{Endpoint, NodeAddr, endpoint::Connection};
 use iroh_blobs::{
     BlobFormat, Hash,
@@ -30,7 +29,10 @@ use mime::Mime;
 use mime_classifier::MimeClassifier;
 use range_collections::RangeSet2;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
+use tower_http::trace::TraceLayer;
 use url::Url;
+
+use crate::dasl::cid_to_iroh_hash;
 
 use super::ranges::{parse_byte_range, slice, to_byte_range, to_chunk_range};
 
@@ -78,6 +80,7 @@ struct Inner {
     endpoint: Endpoint,
     /// Default node to connect to when not specified in the url
     default_node: Option<NodeAddr>,
+    #[allow(unused)]
     /// This will replace default_node
     client: iroh_blobs::rpc::client::blobs::MemClient,
     /// Mime classifier
@@ -260,18 +263,18 @@ async fn handle_index() -> std::result::Result<String, AppError> {
 
 /// Handle a request for a range of bytes from the default node.
 async fn handle_local_blob_request(
-    // gateway: Extension<Gateway>,
-    Path(cid): Path<Cid>,
-    // req: Request<Body>,
-) -> std::result::Result<String, AppError> {
+    gateway: Extension<Gateway>,
+    Path(cid): Path<String>,
+    req: Request<Body>,
+) -> std::result::Result<Response<Body>, AppError> {
     println!("{:?}", cid);
-    // cid.hash().code() != 0x55 {
-    // }
-    // let connection = gateway.get_default_connection().await?;
-    // let byte_range = parse_byte_range(req).await?;
-    // let res = forward_range(&gateway, connection, &blake3_hash, None, byte_range).await?;
-    // Ok(res)
-    Ok(cid.to_string())
+    let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
+    let (_, hash) = cid_to_iroh_hash(cid)?;
+
+    let connection = gateway.get_default_connection().await?;
+    let byte_range = parse_byte_range(req).await?;
+    let res = forward_range(&gateway, connection, &hash, None, byte_range).await?;
+    Ok(res)
 }
 
 async fn handle_local_collection_index(
@@ -507,8 +510,10 @@ pub async fn run(
     serve_addr: &str,
 ) -> anyhow::Result<()> {
     let node_addr = endpoint.node_addr().await?;
+    let gateway_endpoint = Endpoint::builder().discovery_n0().bind().await?;
+
     let gateway = Gateway(Arc::new(Inner {
-        endpoint,
+        endpoint: gateway_endpoint,
         default_node: Some(node_addr),
         client,
         mime_classifier: MimeClassifier::new(),
@@ -523,7 +528,6 @@ pub async fn run(
 
     #[rustfmt::skip]
     let app = Router::new()
-        .without_v07_checks()
         .route("/", get(handle_index))
         .route("/collection/:blake3_hash", get(handle_local_collection_index))
         .route("/collection/:blake3_hash/*path", get(handle_local_collection_request))
@@ -531,7 +535,8 @@ pub async fn run(
         .route("/ticket/:ticket", get(handle_ticket_index))
         .route("/ticket/:ticket/*path", get(handle_ticket_request))
         .layer(cors)
-        .layer(Extension(gateway));
+        .layer(Extension(gateway))
+        .layer(TraceLayer::new_for_http());
     // Run our application as just http
     println!("listening on {}, http", serve_addr);
 

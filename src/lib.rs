@@ -1,3 +1,4 @@
+mod dasl;
 pub mod echo;
 mod gateway;
 mod node;
