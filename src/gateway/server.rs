@@ -14,7 +14,6 @@ use axum::{
     routing::get,
 };
 use bytes::Bytes;
-// use derive_more::Deref;
 use iroh::{Endpoint, NodeAddr, endpoint::Connection};
 use iroh_blobs::{
     BlobFormat, Hash,
@@ -33,7 +32,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use url::Url;
 
-use crate::dasl::cid_to_iroh_hash;
+use crate::dasl::ShaMap;
 
 use super::ranges::{parse_byte_range, slice, to_byte_range, to_chunk_range};
 
@@ -81,6 +80,8 @@ struct Inner {
     endpoint: Endpoint,
     /// Default node to connect to when not specified in the url
     default_node: Option<NodeAddr>,
+    /// CID conversion tool, including SHA2 -> BLAKE3 mapping
+    hashes: ShaMap,
     #[allow(unused)]
     /// This will replace default_node
     client: iroh_blobs::rpc::client::blobs::MemClient,
@@ -259,7 +260,7 @@ async fn get_mime_type(
 
 async fn handle_index() -> std::result::Result<String, AppError> {
     info!("handle_index");
-    Ok("oh hai fren, version 3".to_string())
+    Ok("oh hai fren riba".to_string())
 }
 
 /// Handle a request for a range of bytes from the default node.
@@ -270,7 +271,7 @@ async fn handle_local_blob_request(
 ) -> std::result::Result<Response<Body>, AppError> {
     info!(?cid, "local_blob_request");
     let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
-    let (_, hash) = cid_to_iroh_hash(cid)?;
+    let (_, hash) = gateway.hashes.cid_to_blake3_hash(cid)?;
 
     let connection = gateway.get_default_connection().await?;
     let byte_range = parse_byte_range(req).await?;
@@ -284,7 +285,7 @@ async fn handle_local_collection_index(
 ) -> std::result::Result<impl IntoResponse, AppError> {
     info!(?cid, "handle_local_collection_index");
     let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
-    let (_, hash) = cid_to_iroh_hash(cid)?;
+    let (_, hash) = gateway.hashes.cid_to_blake3_hash(cid)?;
 
     let connection = gateway.get_default_connection().await?;
     let link_prefix = format!("/collection/{}", hash);
@@ -300,7 +301,7 @@ async fn handle_local_collection_request(
 ) -> std::result::Result<impl IntoResponse, AppError> {
     info!(?cid, "local_collection_request");
     let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
-    let (_, hash) = cid_to_iroh_hash(cid)?;
+    let (_, hash) = gateway.hashes.cid_to_blake3_hash(cid)?;
 
     let connection = gateway.get_default_connection().await?;
     let byte_range = parse_byte_range(req).await?;
@@ -515,15 +516,17 @@ async fn forward_range(
 
 pub async fn run(
     endpoint: Endpoint,
+    hashes: ShaMap,
     client: iroh_blobs::rpc::client::blobs::MemClient,
     serve_addr: &str,
 ) -> anyhow::Result<()> {
     let node_addr = endpoint.node_addr().await?;
-    // let gateway_endpoint = Endpoint::builder().discovery_n0().bind().await?;
+    let gateway_endpoint = Endpoint::builder().discovery_n0().bind().await?;
 
     let gateway = Gateway(Arc::new(Inner {
-        endpoint,
+        endpoint: gateway_endpoint,
         default_node: Some(node_addr),
+        hashes,
         client,
         mime_classifier: MimeClassifier::new(),
         mime_cache: Mutex::new(LruCache::new(100000.try_into().unwrap())),

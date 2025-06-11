@@ -1,15 +1,17 @@
 use anyhow::Result;
 use iroh::{Endpoint, NodeId, protocol::Router};
 use iroh_blobs::{ALPN as BLOBS_ALPN, net_protocol::Blobs};
+use sha2::Digest;
 use tokio::task::JoinHandle;
 
 use crate::{
-    dasl::{DaslCodec, iroh_hash_to_cid},
+    dasl::{DaslCodec, ShaMap, blake3_to_cid, sha2_to_cid},
     echo::{ALPN, Echo},
     gateway::server,
 };
 
 pub struct Node {
+    shas: ShaMap,
     blobs: iroh_blobs::rpc::client::blobs::MemClient,
     router: Router,
 }
@@ -26,27 +28,32 @@ impl Node {
         let blobs_dir = home_dir.join("iroh_dasl/blobs");
         tokio::fs::create_dir_all(&blobs_dir).await?;
 
+        let shas = ShaMap::new();
         let blobs = Blobs::persistent(blobs_dir).await?.build(&endpoint);
         let router = Router::builder(endpoint)
             .accept(ALPN, Echo)
             .accept(BLOBS_ALPN, blobs.clone())
             .spawn();
 
-        Ok(Self {
+        let node = Self {
+            shas,
             blobs: blobs.client().clone(),
             router,
-        })
+        };
+
+        node.add_test_data().await?;
+
+        Ok(node)
     }
 
     pub async fn gateway(&self, serve_addr: &str) -> Result<JoinHandle<()>> {
-        self.add_test_data().await?;
-
+        let hashes = self.shas.clone();
         let endpoint = self.router.endpoint().clone();
         let blobs_client = self.blobs.clone();
 
         let serve_addr = serve_addr.to_string();
         let handle = tokio::spawn(async move {
-            server::run(endpoint, blobs_client, &serve_addr)
+            server::run(endpoint, hashes, blobs_client, &serve_addr)
                 .await
                 .expect("gateway failed");
         });
@@ -55,9 +62,17 @@ impl Node {
     }
 
     async fn add_test_data(&self) -> Result<()> {
-        let res = self.blobs.add_bytes("hello world").await?;
-        let cid = iroh_hash_to_cid(res.hash, DaslCodec::Raw);
-        println!("Added test data with hash: {} as CID: {}", res.hash, cid);
+        let data = "hello world";
+        let res = self.blobs.add_bytes(data).await?;
+        let sha2_hash: [u8; 32] = sha2::Sha256::digest(data).into();
+        let b3cid = blake3_to_cid(res.hash, DaslCodec::Raw);
+        let sha2cid = sha2_to_cid(&sha2_hash, DaslCodec::Raw);
+        self.shas.set(sha2_hash, res.hash);
+
+        println!(
+            "Added test data with hash: {}\nBLAKE3 CID: {}\nSHA2 CID: {}",
+            res.hash, b3cid, sha2cid
+        );
 
         Ok(())
     }
