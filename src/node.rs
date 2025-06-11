@@ -1,5 +1,7 @@
 use anyhow::Result;
+// use ipld_core::cid;
 use iroh::{Endpoint, NodeId, protocol::Router};
+use iroh_blobs::{ALPN as BLOBS_ALPN, net_protocol::Blobs};
 use tokio::task::JoinHandle;
 
 use crate::{
@@ -8,6 +10,7 @@ use crate::{
 };
 
 pub struct Node {
+    blobs: iroh_blobs::rpc::client::blobs::MemClient,
     router: Router,
 }
 
@@ -18,11 +21,32 @@ impl Node {
         Ok(node)
     }
 
+    async fn spawn_router(endpoint: Endpoint) -> Result<Self> {
+        let home_dir = dirs_next::data_dir().unwrap();
+        let blobs_dir = home_dir.join("iroh_dasl/blobs");
+        tokio::fs::create_dir_all(&blobs_dir).await?;
+
+        let blobs = Blobs::persistent(blobs_dir).await?.build(&endpoint);
+        let router = Router::builder(endpoint)
+            .accept(ALPN, Echo)
+            .accept(BLOBS_ALPN, blobs.clone())
+            .spawn();
+
+        Ok(Self {
+            blobs: blobs.client().clone(),
+            router,
+        })
+    }
+
     pub async fn gateway(&self, serve_addr: &str) -> Result<JoinHandle<()>> {
-        let addr = self.router.endpoint().node_addr().await?;
+        self.add_test_data().await?;
+
+        let endpoint = self.router.endpoint().clone();
+        let blobs_client = self.blobs.clone();
+
         let serve_addr = serve_addr.to_string();
         let handle = tokio::spawn(async move {
-            server::run(addr, &serve_addr)
+            server::run(endpoint, blobs_client, &serve_addr)
                 .await
                 .expect("gateway failed");
         });
@@ -30,9 +54,10 @@ impl Node {
         Ok(handle)
     }
 
-    async fn spawn_router(endpoint: Endpoint) -> Result<Self> {
-        let router = Router::builder(endpoint).accept(ALPN, Echo).spawn();
-        Ok(Self { router })
+    async fn add_test_data(&self) -> Result<()> {
+        let res = self.blobs.add_bytes("hello world").await?;
+        println!("Added test data with hash: {}", res.hash);
+        Ok(())
     }
 
     pub fn node_id(&self) -> NodeId {

@@ -78,6 +78,8 @@ struct Inner {
     endpoint: Endpoint,
     /// Default node to connect to when not specified in the url
     default_node: Option<NodeAddr>,
+    /// This will replace default_node
+    client: iroh_blobs::rpc::client::blobs::MemClient,
     /// Mime classifier
     #[debug("MimeClassifier")]
     mime_classifier: MimeClassifier,
@@ -499,11 +501,16 @@ async fn forward_range(
     Ok(response)
 }
 
-pub async fn run(default_node: NodeAddr, serve_addr: &str) -> anyhow::Result<()> {
-    let endpoint = Endpoint::builder().discovery_n0().bind().await?;
+pub async fn run(
+    endpoint: Endpoint,
+    client: iroh_blobs::rpc::client::blobs::MemClient,
+    serve_addr: &str,
+) -> anyhow::Result<()> {
+    let node_addr = endpoint.node_addr().await?;
     let gateway = Gateway(Arc::new(Inner {
         endpoint,
-        default_node: Some(default_node),
+        default_node: Some(node_addr),
+        client,
         mime_classifier: MimeClassifier::new(),
         mime_cache: Mutex::new(LruCache::new(100000.try_into().unwrap())),
         collection_cache: Mutex::new(LruCache::new(1000.try_into().unwrap())),
@@ -520,7 +527,7 @@ pub async fn run(default_node: NodeAddr, serve_addr: &str) -> anyhow::Result<()>
         .route("/", get(handle_index))
         .route("/collection/:blake3_hash", get(handle_local_collection_index))
         .route("/collection/:blake3_hash/*path", get(handle_local_collection_request))
-        .route("/blob/:blake3_hash", get(handle_local_blob_request))
+        .route("/blob/:cid", get(handle_local_blob_request))
         .route("/ticket/:ticket", get(handle_ticket_index))
         .route("/ticket/:ticket/*path", get(handle_ticket_request))
         .layer(cors)
