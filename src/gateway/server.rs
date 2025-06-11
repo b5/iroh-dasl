@@ -30,6 +30,7 @@ use mime_classifier::MimeClassifier;
 use range_collections::RangeSet2;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
+use tracing::info;
 use url::Url;
 
 use crate::dasl::cid_to_iroh_hash;
@@ -257,7 +258,7 @@ async fn get_mime_type(
 }
 
 async fn handle_index() -> std::result::Result<String, AppError> {
-    tracing::info!("handle_index");
+    info!("handle_index");
     Ok("oh hai fren".to_string())
 }
 
@@ -267,7 +268,7 @@ async fn handle_local_blob_request(
     Path(cid): Path<String>,
     req: Request<Body>,
 ) -> std::result::Result<Response<Body>, AppError> {
-    println!("{:?}", cid);
+    info!(?cid, "local_blob_request");
     let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
     let (_, hash) = cid_to_iroh_hash(cid)?;
 
@@ -279,8 +280,12 @@ async fn handle_local_blob_request(
 
 async fn handle_local_collection_index(
     gateway: Extension<Gateway>,
-    Path(hash): Path<Hash>,
+    Path(cid): Path<String>,
 ) -> std::result::Result<impl IntoResponse, AppError> {
+    info!(?cid, "handle_local_collection_index");
+    let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
+    let (_, hash) = cid_to_iroh_hash(cid)?;
+
     let connection = gateway.get_default_connection().await?;
     let link_prefix = format!("/collection/{}", hash);
     let res = collection_index(&gateway, connection, &hash, &link_prefix).await?;
@@ -290,9 +295,13 @@ async fn handle_local_collection_index(
 /// Handle a request for a range of bytes from the default node.
 async fn handle_local_collection_request(
     gateway: Extension<Gateway>,
-    Path((hash, suffix)): Path<(Hash, String)>,
+    Path((cid, suffix)): Path<(String, String)>,
     req: Request<Body>,
 ) -> std::result::Result<impl IntoResponse, AppError> {
+    info!(?cid, "local_collection_request");
+    let cid = cid.parse().map_err(|_| AppError(anyhow!("invalid CID")))?;
+    let (_, hash) = cid_to_iroh_hash(cid)?;
+
     let connection = gateway.get_default_connection().await?;
     let byte_range = parse_byte_range(req).await?;
     let res = forward_collection_range(&gateway, connection, &hash, &suffix, byte_range).await?;
@@ -328,7 +337,7 @@ async fn handle_ticket_request(
     Path((ticket, suffix)): Path<(BlobTicket, String)>,
     req: Request<Body>,
 ) -> std::result::Result<impl IntoResponse, AppError> {
-    tracing::info!("handle_ticket_request");
+    info!("handle_ticket_request");
     let byte_range = parse_byte_range(req).await?;
     let connection = gateway
         .endpoint
@@ -510,10 +519,10 @@ pub async fn run(
     serve_addr: &str,
 ) -> anyhow::Result<()> {
     let node_addr = endpoint.node_addr().await?;
-    let gateway_endpoint = Endpoint::builder().discovery_n0().bind().await?;
+    // let gateway_endpoint = Endpoint::builder().discovery_n0().bind().await?;
 
     let gateway = Gateway(Arc::new(Inner {
-        endpoint: gateway_endpoint,
+        endpoint,
         default_node: Some(node_addr),
         client,
         mime_classifier: MimeClassifier::new(),
@@ -529,8 +538,8 @@ pub async fn run(
     #[rustfmt::skip]
     let app = Router::new()
         .route("/", get(handle_index))
-        .route("/collection/:blake3_hash", get(handle_local_collection_index))
-        .route("/collection/:blake3_hash/*path", get(handle_local_collection_request))
+        .route("/collection/:cid", get(handle_local_collection_index))
+        .route("/collection/:cid/*path", get(handle_local_collection_request))
         .route("/blob/:cid", get(handle_local_blob_request))
         .route("/ticket/:ticket", get(handle_ticket_index))
         .route("/ticket/:ticket/*path", get(handle_ticket_request))
