@@ -5,14 +5,14 @@ use anyhow::{Result, anyhow};
 use ipld_core::cid::Cid;
 use iroh_blobs::Hash as IrohHash;
 
-// Multicodecs DASL supports
+// Supported Multicodecs & hash functions
+// this implementation supports the optional BDASL extension: https://dasl.ing/bdasl.html
 const RAW_CODE_POINT: u64 = 0x55;
 const DAG_CBOR_CODE_POINT: u64 = 0x71;
-
-// Multihashes DASL supports
 const SHA_2_CODE_POINT: u64 = 0x12;
 const BLAKE_3_CODE_POINT: u64 = 0x1e;
 
+// Supported Codecs
 pub(crate) enum DaslCodec {
     Raw,
     DagCbor,
@@ -85,9 +85,9 @@ pub fn sha2_to_cid(hash: &[u8], codec: DaslCodec) -> Cid {
 /// with lookups from an external service. Given DASL has a block limit for SHA2
 /// data, it's totally fine to maintain this mapping as local knowledge.
 #[derive(Debug, Clone)]
-pub(crate) struct ShaMap(Arc<Mutex<HashMap<[u8; 32], IrohHash>>>);
+pub(crate) struct Sha2Blake3Map(Arc<Mutex<HashMap<[u8; 32], IrohHash>>>);
 
-impl ShaMap {
+impl Sha2Blake3Map {
     pub(crate) fn new() -> Self {
         Self(Arc::new(Mutex::new(HashMap::new())))
     }

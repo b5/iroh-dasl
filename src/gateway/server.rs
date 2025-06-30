@@ -32,7 +32,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use url::Url;
 
-use crate::dasl::ShaMap;
+use crate::dasl::Sha2Blake3Map;
 
 use super::ranges::{parse_byte_range, slice, to_byte_range, to_chunk_range};
 
@@ -81,7 +81,7 @@ struct Inner {
     /// Default node to connect to when not specified in the url
     default_node: Option<NodeAddr>,
     /// CID conversion tool, including SHA2 -> BLAKE3 mapping
-    hashes: ShaMap,
+    hashes: Sha2Blake3Map,
     #[allow(unused)]
     /// This will replace default_node
     client: iroh_blobs::rpc::client::blobs::MemClient,
@@ -260,7 +260,7 @@ async fn get_mime_type(
 
 async fn handle_index() -> std::result::Result<String, AppError> {
     info!("handle_index");
-    Ok("oh hai fren riba".to_string())
+    Ok("Hello!".to_string())
 }
 
 /// Handle a request for a range of bytes from the default node.
@@ -516,7 +516,7 @@ async fn forward_range(
 
 pub async fn run(
     endpoint: Endpoint,
-    hashes: ShaMap,
+    hashes: Sha2Blake3Map,
     client: iroh_blobs::rpc::client::blobs::MemClient,
     serve_addr: &str,
 ) -> anyhow::Result<()> {
@@ -549,6 +549,7 @@ pub async fn run(
         .layer(cors)
         .layer(Extension(gateway))
         .layer(TraceLayer::new_for_http());
+
     // Run our application as just http
     println!("listening on {}, http", serve_addr);
 
